@@ -103,6 +103,6 @@ ${docs}`;
     return res.status(200).json({ answer });
   } catch (err) {
     console.error('Gemini API error:', err.message);
-    return res.status(500).json({ error: 'Failed to get a response. Please try again.' });
+    return res.status(500).json({ error: 'Failed to get a response. Please try again.', debug: err.message });
   }
 }
