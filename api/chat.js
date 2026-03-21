@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 // Load docs once at cold-start (cached across warm invocations)
 let docsContext = null;
@@ -39,7 +39,7 @@ async function logToSheets(payload) {
 }
 
 export default async function handler(req, res) {
-  // CORS headers — adjust origin if you want to lock this down later
+  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -76,21 +76,21 @@ If a question is vague, ask a brief clarifying question before answering.
 PIXO BUILDER DOCUMENTATION:
 ${docs}`;
 
-  // Build messages array — support multi-turn conversation
-  const messages = [
-    ...conversationHistory,
-    { role: 'user', content: question.trim() },
-  ];
+  // Build Gemini chat history (all turns except the latest question)
+  const history = conversationHistory.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      systemInstruction: systemPrompt,
     });
 
-    const answer = response.content[0].text;
+    const chat = model.startChat({ history });
+    const result = await chat.sendMessage(question.trim());
+    const answer = result.response.text();
 
     // Log asynchronously — don't await, don't block response
     logToSheets({
@@ -102,7 +102,7 @@ ${docs}`;
 
     return res.status(200).json({ answer });
   } catch (err) {
-    console.error('Claude API error:', err.message);
+    console.error('Gemini API error:', err.message);
     return res.status(500).json({ error: 'Failed to get a response. Please try again.' });
   }
 }

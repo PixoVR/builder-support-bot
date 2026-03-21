@@ -7,7 +7,7 @@
     "dev": "vercel dev"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0"
+    "@google/generative-ai": "^0.21.0"
   },
   "devDependencies": {
     "vercel": "^39.0.0"
