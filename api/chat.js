@@ -99,6 +99,6 @@ ${docs}`;
     return res.status(200).json({ answer });
   } catch (err) {
     console.error('Claude API error:', err.message);
-    return res.status(500).json({ error: 'Failed to get a response. Please try again.', debug: err.message });
+    return res.status(500).json({ error: 'Failed to get a response. Please try again.' });
   }
 }
