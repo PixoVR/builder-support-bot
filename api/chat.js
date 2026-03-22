@@ -81,7 +81,7 @@ ${docs}`;
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5-20251001',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 1024,
       system: systemPrompt,
       messages,
