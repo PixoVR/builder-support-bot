@@ -38,68 +38,6 @@
       margin-top: 2px;
     }
 
-    /* Name gate overlay */
-    #name-gate {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.55);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-    }
-
-    #name-gate.hidden { display: none; }
-
-    .name-card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 32px;
-      width: min(400px, 90vw);
-      box-shadow: 0 8px 40px rgba(0,0,0,0.2);
-    }
-
-    .name-card h2 {
-      font-size: 20px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-
-    .name-card p {
-      font-size: 14px;
-      color: #555;
-      margin-bottom: 24px;
-      line-height: 1.5;
-    }
-
-    .name-card input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid #d0d0d5;
-      border-radius: 8px;
-      font-size: 15px;
-      margin-bottom: 16px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    .name-card input:focus { border-color: #6e5ae0; }
-
-    .name-card button {
-      width: 100%;
-      padding: 11px;
-      background: #6e5ae0;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    .name-card button:hover { background: #5a48c8; }
-
     /* Chat area */
     #chat-container {
       flex: 1;
@@ -221,16 +159,6 @@
 </head>
 <body>
 
-  <!-- Name gate -->
-  <div id="name-gate">
-    <div class="name-card">
-      <h2>Pixo Builder Support</h2>
-      <p>Ask questions about how to use Pixo Builder. Enter your name so we know who to follow up with if needed.</p>
-      <input type="text" id="name-input" placeholder="Your name" autocomplete="name" />
-      <button id="name-submit">Start chatting</button>
-    </div>
-  </div>
-
   <header>
     <div>
       <h1>Pixo Builder Support</h1>
@@ -245,8 +173,8 @@
   </div>
 
   <div id="input-bar">
-    <textarea id="question-input" rows="1" placeholder="Ask a question..." disabled></textarea>
-    <button id="send-btn" disabled>Send</button>
+    <textarea id="question-input" rows="1" placeholder="Ask a question..."></textarea>
+    <button id="send-btn">Send</button>
   </div>
 
   <footer>Answers are based on Pixo Builder documentation. For complex issues, contact the Pixo team directly.</footer>
@@ -289,32 +217,14 @@
     }
 
     // State
-    let userName = '';
     let conversationHistory = [];
     let isLoading = false;
 
-    const nameGate = document.getElementById('name-gate');
-    const nameInput = document.getElementById('name-input');
-    const nameSubmit = document.getElementById('name-submit');
     const chatContainer = document.getElementById('chat-container');
     const questionInput = document.getElementById('question-input');
     const sendBtn = document.getElementById('send-btn');
 
-    // Name gate
-    function submitName() {
-      const name = nameInput.value.trim();
-      if (!name) { nameInput.focus(); return; }
-      userName = name;
-      nameGate.classList.add('hidden');
-      questionInput.disabled = false;
-      sendBtn.disabled = false;
-      questionInput.focus();
-    }
-
-    nameSubmit.addEventListener('click', submitName);
-    nameInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') submitName();
-    });
+    questionInput.focus();
 
     // Auto-resize textarea
     questionInput.addEventListener('input', () => {
@@ -364,7 +274,6 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             question,
-            userName,
             conversationHistory,
           }),
         });
