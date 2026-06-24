@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "vercel": "^50.35.0"
+  },
+  "overrides": {
+    "tar": "^7.5.16"
   }
 }
