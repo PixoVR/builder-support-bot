@@ -10,7 +10,7 @@
     "@anthropic-ai/sdk": "^0.39.0"
   },
   "devDependencies": {
-    "vercel": "^50.35.0"
+    "vercel": "^54.17.0"
   },
   "overrides": {
     "tar": "^7.5.16"
