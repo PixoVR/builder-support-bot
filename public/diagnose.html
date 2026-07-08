@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Builder Doctor — Ask</title>
+<style>
+  :root{--bg:#f7f8fa;--card:#fff;--ink:#1a1f2b;--muted:#5b6472;--line:#e4e7ec;--accent:#3b5bdb;--accent-ink:#fff;--ok:#2f855a;--ok-bg:#e9f7ef;--warn:#b7791f;--warn-bg:#fef7e6}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#161c2b;--ink:#e7ebf3;--muted:#9aa4b5;--line:#26304a;--accent:#6b8afd;--accent-ink:#0f1420;--ok:#5fd39a;--ok-bg:#12281f;--warn:#f0b429;--warn-bg:#33280f}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:30px 20px 60px}
+  h1{margin:0 0 4px;font-size:24px}
+  p.sub{margin:0;color:var(--muted)}
+  .privacy{margin-top:8px;font-size:13px;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:18px}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;cursor:pointer;transition:.15s}
+  .drop.drag{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--card))}
+  label{display:block;font-weight:600;font-size:13.5px;margin:14px 0 5px}
+  textarea,select,input{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;font:14px/1.5 inherit}
+  textarea{min-height:64px;resize:vertical}
+  .row{display:flex;gap:12px}.row>div{flex:1}
+  .anchor{font-size:13px;color:var(--muted);margin-top:8px}
+  .anchor b{color:var(--ink)}
+  button{margin-top:16px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:9px;padding:11px 18px;font-size:15px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .issues{margin-top:10px;font-size:13px;color:var(--warn)}
+  .answer{white-space:pre-wrap;line-height:1.6}
+  .err{color:#c0392b;background:var(--warn-bg);border-radius:8px;padding:10px;margin-top:12px}
+  .hidden{display:none}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Builder Doctor — Ask</h1>
+  <p class="sub">Tell me what you expected and what happened. I'll look at your book's wiring and explain why — or tell you to bring it to Pixo Support.</p>
+  <p class="privacy">🔒 Your book is unzipped and analyzed <b>in your browser</b>. Only a summary of the relevant wiring is sent for diagnosis — the file itself never leaves your machine.</p>
+
+  <div class="card">
+    <div id="drop" class="drop">
+      <strong>Drop your .pixob here</strong> — or click to choose
+      <input id="file" type="file" accept=".pixob,application/zip" class="hidden">
+    </div>
+    <div id="loaded" class="hidden">
+      <label for="chapter">Which chapter?</label>
+      <select id="chapter"></select>
+      <div class="anchor" id="anchor"></div>
+      <div class="issues hidden" id="issues"></div>
+
+      <div class="row">
+        <div><label for="expected">What did you expect to happen?</label><textarea id="expected" placeholder="e.g. Only 3 hazards should be set at random"></textarea></div>
+        <div><label for="actual">What actually happened?</label><textarea id="actual" placeholder="e.g. Only one hazard gets set"></textarea></div>
+      </div>
+      <details><summary>Optional: paste your Player.log</summary>
+        <textarea id="log" placeholder="~/Library/Logs/Pixo VR/Pixo Builder/Player.log"></textarea>
+      </details>
+
+      <button id="go" disabled>Diagnose</button>
+    </div>
+  </div>
+
+  <div id="err" class="err hidden"></div>
+  <div id="out" class="card hidden"><div class="answer" id="answer"></div></div>
+</div>
+
+<script src="/lib/analyzer.js"></script>
+<script src="/lib/zipread.js"></script>
+<script src="/lib/bookmap.js"></script>
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var files=null, savedAt=null, bmap=null, known=[];
+  var drop=$('drop'), fileInput=$('file');
+
+  function setReady(){ $('go').disabled = !($('expected').value.trim() && $('actual').value.trim() && $('chapter').value); }
+  ['expected','actual'].forEach(function(id){ $(id).addEventListener('input', setReady); });
+  $('chapter') && $('chapter').addEventListener('change', function(){ updateAnchor(); setReady(); });
+
+  function updateAnchor(){
+    var opt=$('chapter').selectedOptions[0]; if(!opt) return;
+    $('anchor').innerHTML = 'Diagnosing <b>'+opt.dataset.name+'</b> <code>['+opt.value.slice(0,8)+']</code> — '+opt.dataset.sparks+' Sparks. Reading your file as saved '+(savedAt||'(unknown)')+'. I can’t see unsaved edits open in Builder.';
+  }
+
+  async function handleFile(file){
+    $('err').classList.add('hidden'); $('out').classList.add('hidden');
+    try{
+      savedAt = file.lastModified ? new Date(file.lastModified).toLocaleString() : null;
+      var ab=await file.arrayBuffer();
+      var text=await window.BuilderDoctorZip.readZipJson(ab);
+      files=window.BuilderDoctorZip.parseAll(text);
+      if(!files['Book.json']) throw new Error('No Book.json — this may not be a Pixo Builder book.');
+      bmap=window.BuilderDoctorMap.bookMap(files);
+      var scan=window.BuilderDoctor.analyze(files, null);
+      known=scan.findings.filter(function(f){return f.sev!=='info';}).map(function(f){return {jira:f.jira,severity:f.sev,title:f.title};});
+      // populate chapter picker (GUID-anchored)
+      var sel=$('chapter'); sel.innerHTML='';
+      bmap.chapters.forEach(function(c){
+        var o=document.createElement('option');
+        o.value=c.guid; o.textContent=c.name+'  ['+c.guid.slice(0,8)+']  ·  '+c.sparkCount+' sparks';
+        o.dataset.name=c.name; o.dataset.sparks=c.sparkCount; sel.appendChild(o);
+      });
+      $('drop').classList.add('hidden'); $('loaded').classList.remove('hidden');
+      if(known.length){ $('issues').classList.remove('hidden'); $('issues').textContent='Heads up — a scan flagged '+known.length+' known issue(s) in this book; I’ll factor those in.'; }
+      updateAnchor(); setReady();
+    }catch(e){ $('err').textContent='Could not read this file: '+e.message; $('err').classList.remove('hidden'); }
+  }
+
+  drop.addEventListener('click',function(){fileInput.click();});
+  fileInput.addEventListener('change',function(){ if(fileInput.files[0]) handleFile(fileInput.files[0]); });
+  ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('drag');});});
+  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('drag');});});
+  drop.addEventListener('drop',function(e){ var f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+  $('go').addEventListener('click', async function(){
+    var guid=$('chapter').value;
+    var opt=$('chapter').selectedOptions[0];
+    var digest=window.BuilderDoctorMap.chapterWiring(files, guid);
+    $('go').disabled=true; $('go').textContent='Diagnosing…'; $('err').classList.add('hidden');
+    try{
+      var res=await fetch('/api/diagnose',{ method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          expected:$('expected').value.trim(), actual:$('actual').value.trim(),
+          chapter:{name:opt.dataset.name, guid:guid},
+          bookMap:{name:bmap.name, savedAt:savedAt}, knownIssues:known,
+          log:$('log').value.trim()||undefined, digest:digest
+        })
+      });
+      var data=await res.json();
+      if(!res.ok) throw new Error(data.error||'Request failed');
+      $('answer').textContent=data.answer; $('out').classList.remove('hidden');
+    }catch(e){ $('err').textContent=e.message; $('err').classList.remove('hidden'); }
+    finally{ $('go').disabled=false; $('go').textContent='Diagnose'; }
+  });
+})();
+</script>
+</body>
+</html>

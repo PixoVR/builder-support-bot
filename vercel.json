@@ -3,6 +3,10 @@
     "api/chat.js": {
       "maxDuration": 30,
       "includeFiles": "data/**"
+    },
+    "api/diagnose.js": {
+      "maxDuration": 30,
+      "includeFiles": "data/**"
     }
   }
 }
