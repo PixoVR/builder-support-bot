@@ -84,9 +84,11 @@ export default async function handler(req, res) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 4000, // headroom: adaptive thinking tokens + the answer share this budget
-      thinking: { type: 'adaptive' }, // reason through consequences before answering (helps control-flow correctness)
-      output_config: { effort: 'medium' }, // cap thinking depth so we stay under the function timeout (high effort exceeded 30s)
+      max_tokens: 1500,
+      // Thinking is OFF: adaptive thinking on the full digest exceeds this platform's ~30s function cap.
+      // The known control-flow failures are handled deterministically (reachedFrom) + by the prompt.
+      // Re-enable with effort control once the SDK is upgraded and responses are streamed.
+      thinking: { type: 'disabled' },
       system: [
         // Stable across all calls -> cached globally.
         { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
