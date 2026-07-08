@@ -65,9 +65,400 @@
   <div id="out" class="card hidden"><div class="answer" id="answer"></div></div>
 </div>
 
-<script src="/lib/analyzer.js"></script>
-<script src="/lib/zipread.js"></script>
-<script src="/lib/bookmap.js"></script>
+<script>/* analyzer.js (inlined) */
+/* Builder Doctor analyzer — pure, runs in Node and browser.
+   Input model: { files } where files is { filename: parsedValue }
+     - *.json (GUID-named)  -> parsed object
+     - Book.json            -> parsed object
+     - *.StepPlan.json      -> parsed object
+   plus optional logText (Player.log contents as string).
+   Output: array of findings, most severe first. */
+(function (global) {
+  var GUID_JSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/i;
+
+  function collectContained(spark, out) {
+    var kids = spark && spark.ContainedSparks;
+    if (Array.isArray(kids)) {
+      for (var i = 0; i < kids.length; i++) {
+        var c = kids[i];
+        if (c && c.GuidInstance) out.push({ guid: c.GuidInstance, name: c.Name || '(unnamed)' });
+        collectContained(c, out);
+      }
+    }
+  }
+
+  function buildModel(files) {
+    var model = { name: null, book: null, chapters: [], sparks: {}, stepPlans: {} };
+    var book = files['Book.json'];
+    if (book && typeof book === 'object') { model.book = book; model.name = book.Name || null; }
+    for (var fn in files) {
+      if (!files.hasOwnProperty(fn)) continue;
+      if (/\.StepPlan\.json$/i.test(fn)) {
+        model.stepPlans[fn.replace(/\.StepPlan\.json$/i, '')] = files[fn];
+        continue;
+      }
+      if (!GUID_JSON.test(fn)) continue;
+      var obj = files[fn];
+      if (!obj || typeof obj !== 'object') continue;
+      var guid = fn.replace(/\.json$/i, '');
+      var t = obj.Type || '';
+      if (/Chapters\.Chapter/.test(t) || (Array.isArray(obj.Sparks) && obj.Map)) {
+        model.chapters.push({ guid: guid, name: obj.Name || '(unnamed)', sparkGuids: obj.Sparks || [], raw: obj });
+      } else if (/Spark/.test(t) || obj.Traits || obj.EffectInstances) {
+        model.sparks[guid] = obj;
+      }
+    }
+    if (model.book && Array.isArray(model.book.Chapters)) {
+      var order = {};
+      model.book.Chapters.forEach(function (g, i) { order[g] = i; });
+      model.chapters.sort(function (a, b) {
+        var oa = order[a.guid] == null ? 999 : order[a.guid];
+        var ob = order[b.guid] == null ? 999 : order[b.guid];
+        return oa - ob;
+      });
+    }
+    return model;
+  }
+
+  var SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+  function analyze(files, logText) {
+    var m = buildModel(files);
+    var findings = [];
+    var add = function (f) { findings.push(f); };
+
+    // ---- Rule 1: shared top-level instance GUIDs across chapters (linked chapters) ----
+    var topMap = {}; // guid -> [chapterName]
+    m.chapters.forEach(function (ch) {
+      (ch.sparkGuids || []).forEach(function (g) {
+        (topMap[g] = topMap[g] || []).push(ch.name);
+      });
+    });
+    var linked = Object.keys(topMap).filter(function (g) {
+      var s = {}; topMap[g].forEach(function (n) { s[n] = 1; });
+      return Object.keys(s).length > 1;
+    });
+    if (linked.length) {
+      var ex = linked.slice(0, 5).map(function (g) { return g.slice(0, 8) + '… in [' + Array.from(new Set(topMap[g])).join(', ') + ']'; });
+      add({
+        sev: 'high', jira: 'PLATFORM-2185 / PLATFORM-2247',
+        title: 'Linked chapters — the same Spark instance is shared across chapters',
+        detail: linked.length + ' Spark instance GUID(s) appear in more than one chapter. This is the "linked chapters" condition left by chapter duplication: edits and wiring in one chapter bleed into the other, and cross-chapter behavior nodes can become undeletable (NRE).',
+        evidence: ex,
+        workaround: 'Re-run the de-link workaround (tools/finish_duplicated_chapter.py) so each chapter owns unique instance GUIDs. Quit Builder fully before running. Do not hand-edit in Builder while linked.'
+      });
+    }
+
+    // ---- Rule 2: shared contained-spark GUIDs across chapters ----
+    var contMap = {}; // guid -> Set(chapterName)
+    m.chapters.forEach(function (ch) {
+      (ch.sparkGuids || []).forEach(function (g) {
+        var sp = m.sparks[g]; if (!sp) return;
+        var kids = []; collectContained(sp, kids);
+        kids.forEach(function (k) {
+          (contMap[k.guid] = contMap[k.guid] || {})[ch.name] = 1;
+        });
+      });
+    });
+    var contDup = Object.keys(contMap).filter(function (g) { return Object.keys(contMap[g]).length > 1; });
+    if (contDup.length) {
+      add({
+        sev: 'medium', jira: 'PLATFORM-2225',
+        title: 'Contained (nested) Sparks share GUIDs across chapters',
+        detail: contDup.length + ' nested Spark GUID(s) (inside containers such as Screen-Space UI / Crosshair) are duplicated across chapters. Chapter duplication does not re-GUID contained Sparks, leaving a latent duplicate-GUID condition.',
+        evidence: contDup.slice(0, 5).map(function (g) { return g.slice(0, 8) + '… in [' + Object.keys(contMap[g]).join(', ') + ']'; }),
+        workaround: 'Usually harmless when chapters are played one at a time. If you see cross-chapter UI corruption, rebuild the affected chapter rather than duplicating.'
+      });
+    }
+
+    // ---- Rule 3: shared StepIds across chapter StepPlans (linked step plans) ----
+    var stepMap = {}; // stepId -> [chapterGuid]
+    Object.keys(m.stepPlans).forEach(function (cg) {
+      var plan = m.stepPlans[cg];
+      var steps = (plan && plan.Steps) || [];
+      steps.forEach(function (s) { if (s && s.StepId) (stepMap[s.StepId] = stepMap[s.StepId] || []).push(cg); });
+    });
+    var linkedSteps = Object.keys(stepMap).filter(function (s) { return new Set(stepMap[s]).size > 1; });
+    if (linkedSteps.length) {
+      var nameOf = function (g) { var c = m.chapters.find(function (x) { return x.guid === g; }); return c ? c.name : g.slice(0, 8); };
+      add({
+        sev: 'high', jira: 'PLATFORM-2247',
+        title: 'Linked Step Manager plans — StepIds shared between chapters',
+        detail: linkedSteps.length + ' Step(s) share IDs across chapters, the signature of a duplicated chapter whose Step Manager plan was cloned instead of copied. Editing steps in one chapter alters the other.',
+        evidence: linkedSteps.slice(0, 5).map(function (s) { return s.slice(0, 8) + '… in [' + Array.from(new Set(stepMap[s])).map(nameOf).join(', ') + ']'; }),
+        workaround: 'Re-run tools/finish_duplicated_chapter.py against the source book to rebuild the duplicate\'s step sidecar with fresh StepIds.'
+      });
+    }
+
+    // ---- Rule 4: duplicate chapter names ----
+    var nameCount = {};
+    m.chapters.forEach(function (ch) { (nameCount[ch.name] = nameCount[ch.name] || []).push(ch.guid); });
+    var dupNames = Object.keys(nameCount).filter(function (n) { return nameCount[n].length > 1; });
+    if (dupNames.length) {
+      add({
+        sev: 'low', jira: 'PLATFORM-2253',
+        title: 'Two or more chapters share the same name',
+        detail: 'Duplicated chapters were not renamed. Beyond confusion, identical names make the de-link workaround ambiguous (it matches chapters by name).',
+        evidence: dupNames.map(function (n) { return '"' + n + '" ×' + nameCount[n].length; }),
+        workaround: 'Rename each duplicate to a unique name before running any GUID-based tooling.'
+      });
+    }
+
+    // ---- Rule 5: "Animate Play" effect (silent no-op) ----
+    var animatePlay = [];
+    Object.keys(m.sparks).forEach(function (g) {
+      var eff = m.sparks[g].EffectInstances || [];
+      eff.forEach(function (e) { if (e && /^Animate Play$/i.test(e.Name || '')) animatePlay.push(g); });
+    });
+    if (animatePlay.length) {
+      add({
+        sev: 'medium', jira: 'reference: Animate Play',
+        title: '"Animate Play" effect in use — it silently does nothing',
+        detail: 'The "Animate Play" effect only scrolls glTF material UVs and is a no-op for object motion. It is easily confused with "Animation Play" (which plays real clips).',
+        evidence: [animatePlay.length + ' spark(s) use an "Animate Play" effect'],
+        workaround: 'Use Move / Rotate for object motion, or "Animation Play" for baked clips.'
+      });
+    }
+
+    // ---- Rule 6: Named State Machine present (index-based state refs) ----
+    var namedSM = Object.keys(m.sparks).filter(function (g) { return /StateMachineNamed/.test(m.sparks[g].Type || ''); });
+    if (namedSM.length) {
+      add({
+        sev: 'info', jira: 'PLATFORM-2218',
+        title: 'Named State Machine(s) present — state references are positional',
+        detail: namedSM.length + ' Named State Machine(s) found. State references resolve by index, not by name: reordering or deleting a state silently re-points wiring, and only the last state can be safely removed.',
+        evidence: null,
+        workaround: 'Add states only at the end; avoid reordering. If you must reorder, re-check every "Go to Named State" / "If State is Named" reference afterward.'
+      });
+    }
+
+    // ---- Rule 7: multi-chapter informational ----
+    if (m.chapters.length > 1) {
+      add({
+        sev: 'info', jira: 'PLATFORM-2185',
+        title: m.chapters.length + ' chapters in this book',
+        detail: 'Multi-chapter books are where the behavior-membership and duplication bugs surface. This is informational; the checks above look for the specific signatures.',
+        evidence: m.chapters.map(function (c) { return c.name; }),
+        workaround: null
+      });
+    }
+
+    // ---- Log-based rules (optional) ----
+    if (logText) {
+      var logRules = [
+        { re: /GetOrCreateBehaviorUI/, sev: 'high', jira: 'PLATFORM-2185', title: 'Log shows GetOrCreateBehaviorUI errors (cross-chapter behavior mis-scoping)', wa: 'Quit and relaunch Builder to clear the in-memory desync; then avoid cross-chapter editing in one session. The saved book is usually fine.' },
+        { re: /SetActiveHudTexture/, sev: 'medium', jira: 'PLATFORM-2215', title: 'Log shows SetActiveHudTexture NRE (Map Explorer play/stop after layout reset)', wa: 'Known missing-unsubscribe bug; harmless to the book. Avoid resetting the layout mid-session.' },
+        { re: /HUDWidget|Input ?System|InvalidOperationException/i, sev: 'high', jira: 'PLATFORM-2189', title: 'Log suggests HUDWidget / Input System crash on button click', wa: 'Legacy Input API incompatibility; tracked. Avoid HUD button interactions until patched.' },
+        { re: /mismatched Sort Order/i, sev: 'low', jira: 'PLATFORM-2195', title: 'Log shows spurious "mismatched Sort Order Trait" warning', wa: 'Cosmetic initialization warning; safe to ignore.' }
+      ];
+      logRules.forEach(function (r) {
+        if (r.re.test(logText)) add({ sev: r.sev, jira: r.jira, title: r.title, detail: 'Matched a known error signature in the pasted Player.log.', evidence: null, workaround: r.wa });
+      });
+    }
+
+    findings.sort(function (a, b) { return SEV_RANK[a.sev] - SEV_RANK[b.sev]; });
+    return { model: { name: m.name, chapters: m.chapters.map(function (c) { return { name: c.name, sparks: (c.sparkGuids || []).length }; }), stepPlans: Object.keys(m.stepPlans).length, sparkCount: Object.keys(m.sparks).length }, findings: findings };
+  }
+
+  var api = { analyze: analyze, buildModel: buildModel };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else global.BuilderDoctor = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>/* zipread.js (inlined) */
+/* Minimal ZIP reader for .pixob — browser + Node 18+ (uses global DecompressionStream).
+   Reads the central directory, inflates each *.json entry (stored or deflate),
+   returns { filename: string(text) }. No external dependencies. */
+(function (global) {
+  function dv(u8) { return new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
+
+  async function inflateRaw(bytes) {
+    if (bytes.length === 0) return new Uint8Array(0);
+    var ds = new DecompressionStream('deflate-raw');
+    var stream = new Blob([bytes]).stream().pipeThrough(ds);
+    var ab = await new Response(stream).arrayBuffer();
+    return new Uint8Array(ab);
+  }
+
+  // Find End Of Central Directory (scan backwards for 0x06054b50)
+  function findEOCD(u8) {
+    var sig = 0x06054b50;
+    for (var i = u8.length - 22; i >= 0 && i >= u8.length - 22 - 65536; i--) {
+      if (u8[i] === 0x50 && u8[i + 1] === 0x4b && u8[i + 2] === 0x05 && u8[i + 3] === 0x06) {
+        var d = dv(u8);
+        return { cdOffset: d.getUint32(i + 16, true), cdCount: d.getUint16(i + 10, true) };
+      }
+    }
+    throw new Error('Not a valid .pixob (no ZIP end-of-central-directory found).');
+  }
+
+  async function readZipJson(arrayBuffer, opts) {
+    opts = opts || {};
+    var u8 = new Uint8Array(arrayBuffer);
+    var d = dv(u8);
+    var eocd = findEOCD(u8);
+    var files = {};
+    var p = eocd.cdOffset;
+    for (var n = 0; n < eocd.cdCount; n++) {
+      if (d.getUint32(p, true) !== 0x02014b50) break; // central dir header sig
+      var method = d.getUint16(p + 10, true);
+      var compSize = d.getUint32(p + 20, true);
+      var nameLen = d.getUint16(p + 28, true);
+      var extraLen = d.getUint16(p + 30, true);
+      var commentLen = d.getUint16(p + 32, true);
+      var localOff = d.getUint32(p + 42, true);
+      var name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nameLen));
+      p += 46 + nameLen + extraLen + commentLen;
+
+      if (!/\.json$/i.test(name)) continue; // only JSON entries
+
+      // Local header: recompute data start using the LOCAL name/extra lengths
+      var lNameLen = d.getUint16(localOff + 26, true);
+      var lExtraLen = d.getUint16(localOff + 28, true);
+      var dataStart = localOff + 30 + lNameLen + lExtraLen;
+      var comp = u8.subarray(dataStart, dataStart + compSize);
+      var raw;
+      if (method === 0) raw = comp;                    // stored
+      else if (method === 8) raw = await inflateRaw(comp); // deflate
+      else continue;
+      files[name] = new TextDecoder().decode(raw);
+    }
+    return files;
+  }
+
+  // Parse the text map into JSON objects (skips unparseable files gracefully).
+  function parseAll(textFiles) {
+    var out = {};
+    for (var fn in textFiles) {
+      if (!textFiles.hasOwnProperty(fn)) continue;
+      try { out[fn] = JSON.parse(textFiles[fn]); } catch (e) { /* skip */ }
+    }
+    return out;
+  }
+
+  var api = { readZipJson: readZipJson, parseAll: parseAll };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else global.BuilderDoctorZip = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>/* bookmap.js (inlined) */
+/* bookmap.js — turns a parsed .pixob into an LLM-legible representation.
+   The reusable core of the diagnostic assistant: it produces (1) a book identity
+   map for anchoring "which chapter / which save", and (2) a per-chapter wiring
+   digest — the exact context that let a reasoner diagnose the billboard and hazard
+   cases by hand. Pure; runs in Node and browser. Depends on analyzer.buildModel. */
+(function (global) {
+  var BD = (typeof require !== 'undefined') ? require('./analyzer.js') : global.BuilderDoctor;
+
+  function traitVal(json) { try { return JSON.parse(json).Value; } catch (e) { return undefined; } }
+  function iname(spark) {
+    for (var i = 0; i < (spark.Traits || []).length; i++) {
+      var t = spark.Traits[i];
+      if (t.Label === 'Instance Name') { var v = traitVal(t.Json); if (v != null) return v; }
+    }
+    return spark.Name || '(unnamed)';
+  }
+  function shortType(t) { return (t || '').split('.').pop(); }
+
+  // Compact a param blob to something readable (pull labels / values out of the nested Json).
+  function summarizeParams(params) {
+    if (!params) return null;
+    var out = {};
+    for (var k in params) {
+      if (!params.hasOwnProperty(k)) continue;
+      var v = traitVal(params[k]);
+      if (v && typeof v === 'object' && v.Label != null) out[k || 'value'] = v.Label; // DynamicEnum
+      else out[k || 'value'] = v;
+    }
+    return out;
+  }
+
+  // Notable traits worth surfacing to a reasoner (visibility, state, datum values, randomizer config).
+  var NOTABLE = /Visible|State|Value|Total Values|Valid Values|Require Unique|Loop|Channel|Interactable|Collidable/i;
+
+  // ---- Book identity map (anchoring) ----
+  function bookMap(files, meta) {
+    var m = BD.buildModel(files);
+    return {
+      name: m.name,
+      note: (meta && meta.savedNote) || 'Reflects the last saved state of the file, not any unsaved edits in Builder.',
+      chapterCount: m.chapters.length,
+      chapters: m.chapters.map(function (ch) {
+        var types = {};
+        (ch.sparkGuids || []).forEach(function (g) {
+          var sp = m.sparks[g]; if (sp) { var t = shortType(sp.Type); types[t] = (types[t] || 0) + 1; }
+        });
+        return {
+          guid: ch.guid,
+          name: ch.name,
+          sparkCount: (ch.sparkGuids || []).length,
+          hasStepPlan: !!m.stepPlans[ch.guid],
+          fingerprint: types            // e.g. { Randomizer:1, StateMachineNamed:5, ... }
+        };
+      })
+    };
+  }
+
+  // ---- Per-chapter wiring digest (the reasoning context) ----
+  function chapterWiring(files, chapterGuid) {
+    var m = BD.buildModel(files);
+    var ch = m.chapters.find(function (c) { return c.guid === chapterGuid; });
+    if (!ch) return null;
+
+    // label every behavior node in the chapter for edge resolution
+    var label = {};
+    (ch.sparkGuids || []).forEach(function (g) {
+      var sp = m.sparks[g]; if (!sp) return;
+      var nm = iname(sp);
+      (sp.CauseInstances || []).forEach(function (c) { label[c.GuidInstance] = nm + ' · [cause] ' + c.Name; });
+      (sp.EffectInstances || []).forEach(function (e) { label[e.GuidInstance] = nm + ' · ' + e.Name; });
+    });
+    var resolve = function (g) { return label[g] || (g ? g.slice(0, 8) + '…(external)' : '?'); };
+    var outs = function (node) {
+      var r = [];
+      (node.Effects || []).forEach(function (slot, i) {
+        if (Array.isArray(slot)) slot.forEach(function (dst) { r.push({ slot: i, to: resolve(dst) }); });
+      });
+      return r;
+    };
+
+    var sparks = [];
+    (ch.sparkGuids || []).forEach(function (g) {
+      var sp = m.sparks[g]; if (!sp) return;
+      var notable = {};
+      (sp.Traits || []).forEach(function (t) {
+        if (t.Label && NOTABLE.test(t.Label) && t.Label !== 'Instance Name') {
+          var v = traitVal(t.Json);
+          notable[t.Label] = (v && typeof v === 'object' && v.Label != null) ? v.Label : v;
+        }
+      });
+      var causes = (sp.CauseInstances || []).map(function (c) { return { name: c.Name, wiredTo: outs(c) }; });
+      var effects = (sp.EffectInstances || []).map(function (e) {
+        return { name: e.Name, params: summarizeParams(e.Params), wiredTo: outs(e) };
+      });
+      if (causes.length || effects.length || Object.keys(notable).length) {
+        sparks.push({ name: iname(sp), type: shortType(sp.Type), traits: notable, causes: causes, effects: effects });
+      }
+    });
+
+    return { chapter: { guid: ch.guid, name: ch.name, sparkCount: (ch.sparkGuids || []).length }, sparks: sparks };
+  }
+
+  // ---- Resolve a natural-language reference to sparks by instance name ----
+  function findSparks(files, chapterGuid, query) {
+    var w = chapterWiring(files, chapterGuid); if (!w) return [];
+    var q = (query || '').toLowerCase();
+    return w.sparks.filter(function (s) { return s.name.toLowerCase().indexOf(q) !== -1; }).map(function (s) { return s.name; });
+  }
+
+  var api = { bookMap: bookMap, chapterWiring: chapterWiring, findSparks: findSparks };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else global.BuilderDoctorMap = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
 <script>
 (function(){
   var $=function(id){return document.getElementById(id);};
