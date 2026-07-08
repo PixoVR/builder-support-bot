@@ -24,7 +24,14 @@
   .msg{max-width:86%;padding:10px 13px;border-radius:13px;white-space:pre-wrap;line-height:1.55}
   .msg.bot{background:var(--card);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
   .msg.me{background:var(--me);align-self:flex-end;border-bottom-right-radius:4px}
-  .msg.typing{color:var(--muted);font-style:italic}
+  .msg.typing{padding:13px 15px}
+  .typing .dots{display:inline-flex;gap:5px;align-items:center}
+  .typing .dots i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bd-blink 1.4s infinite both}
+  .typing .dots i:nth-child(2){animation-delay:.2s}
+  .typing .dots i:nth-child(3){animation-delay:.4s}
+  @keyframes bd-blink{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+  @media (prefers-reduced-motion:reduce){.typing .dots i{animation:bd-fade 1.4s infinite both}}
+  @keyframes bd-fade{0%,80%,100%{opacity:.25}40%{opacity:1}}
   .composer{position:sticky;bottom:0;background:var(--bg);padding-top:12px;margin-top:8px;display:flex;gap:8px}
   textarea{flex:1;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:11px;font:15px/1.5 inherit;resize:none;max-height:140px}
   button{background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;padding:0 18px;font-size:15px;font-weight:600;cursor:pointer}
@@ -554,7 +561,8 @@
     }
     bubble('me', text); history.push({role:'user', content:text});
     $('input').value=''; autosize(); $('send').disabled=true;
-    var typing=bubble('bot','…'); typing.classList.add('typing');
+    var typing=bubble('bot',''); typing.classList.add('typing');
+    typing.innerHTML='<span class="dots"><i></i><i></i><i></i></span>';
     try{
       var opt=$('chapter').selectedOptions[0];
       var digest=window.BuilderDoctorMap.chapterWiring(files, $('chapter').value);
