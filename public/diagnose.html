@@ -5,64 +5,68 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Builder Doctor — Ask</title>
 <style>
-  :root{--bg:#f7f8fa;--card:#fff;--ink:#1a1f2b;--muted:#5b6472;--line:#e4e7ec;--accent:#3b5bdb;--accent-ink:#fff;--ok:#2f855a;--ok-bg:#e9f7ef;--warn:#b7791f;--warn-bg:#fef7e6}
-  @media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#161c2b;--ink:#e7ebf3;--muted:#9aa4b5;--line:#26304a;--accent:#6b8afd;--accent-ink:#0f1420;--ok:#5fd39a;--ok-bg:#12281f;--warn:#f0b429;--warn-bg:#33280f}}
+  :root{--bg:#f7f8fa;--card:#fff;--ink:#1a1f2b;--muted:#5b6472;--line:#e4e7ec;--accent:#3b5bdb;--accent-ink:#fff;--me:#eaf0ff;--warn:#b7791f}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#161c2b;--ink:#e7ebf3;--muted:#9aa4b5;--line:#26304a;--accent:#6b8afd;--accent-ink:#0f1420;--me:#1d2740;--warn:#f0b429}}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  .wrap{max-width:760px;margin:0 auto;padding:30px 20px 60px}
-  h1{margin:0 0 4px;font-size:24px}
-  p.sub{margin:0;color:var(--muted)}
-  .privacy{margin-top:8px;font-size:13px;color:var(--muted)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:18px}
-  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;cursor:pointer;transition:.15s}
+  .wrap{max-width:720px;margin:0 auto;padding:26px 18px 40px;display:flex;flex-direction:column;min-height:100vh}
+  h1{margin:0 0 3px;font-size:23px}
+  p.sub{margin:0;color:var(--muted);font-size:14px}
+  .privacy{margin-top:6px;font-size:12.5px;color:var(--muted)}
+  .drop{margin-top:20px;border:2px dashed var(--line);border-radius:14px;background:var(--card);padding:34px 20px;text-align:center;cursor:pointer;transition:.15s}
   .drop.drag{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--card))}
-  label{display:block;font-weight:600;font-size:13.5px;margin:14px 0 5px}
-  textarea,select,input{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px;font:14px/1.5 inherit}
-  textarea{min-height:64px;resize:vertical}
-  .row{display:flex;gap:12px}.row>div{flex:1}
-  .anchor{font-size:13px;color:var(--muted);margin-top:8px}
-  .anchor b{color:var(--ink)}
-  button{margin-top:16px;background:var(--accent);color:var(--accent-ink);border:none;border-radius:9px;padding:11px 18px;font-size:15px;font-weight:600;cursor:pointer}
+  .drop small{color:var(--muted)}
+  .banner{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .banner b{color:var(--ink)} .banner select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:inherit;font-size:12.5px}
+  .banner .issues{flex-basis:100%;color:var(--warn)}
+  .banner a{color:var(--accent);cursor:pointer}
+  .thread{flex:1;margin-top:14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+  .msg{max-width:86%;padding:10px 13px;border-radius:13px;white-space:pre-wrap;line-height:1.55}
+  .msg.bot{background:var(--card);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:4px}
+  .msg.me{background:var(--me);align-self:flex-end;border-bottom-right-radius:4px}
+  .msg.typing{color:var(--muted);font-style:italic}
+  .composer{position:sticky;bottom:0;background:var(--bg);padding-top:12px;margin-top:8px;display:flex;gap:8px}
+  textarea{flex:1;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:11px;font:15px/1.5 inherit;resize:none;max-height:140px}
+  button{background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;padding:0 18px;font-size:15px;font-weight:600;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
-  .issues{margin-top:10px;font-size:13px;color:var(--warn)}
-  .answer{white-space:pre-wrap;line-height:1.6}
-  .err{color:#c0392b;background:var(--warn-bg);border-radius:8px;padding:10px;margin-top:12px}
+  .err{color:#c0392b;font-size:13px;margin-top:8px}
   .hidden{display:none}
-  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em}
-  details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:12px}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}
+  details.log summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+  details.log textarea{width:100%;margin-top:6px;min-height:70px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Builder Doctor — Ask</h1>
-  <p class="sub">Tell me what you expected and what happened. I'll look at your book's wiring and explain why — or tell you to bring it to Pixo Support.</p>
-  <p class="privacy">🔒 Your book is unzipped and analyzed <b>in your browser</b>. Only a summary of the relevant wiring is sent for diagnosis — the file itself never leaves your machine.</p>
-
-  <div class="card">
-    <div id="drop" class="drop">
-      <strong>Drop your .pixob here</strong> — or click to choose
-      <input id="file" type="file" accept=".pixob,application/zip" class="hidden">
-    </div>
-    <div id="loaded" class="hidden">
-      <label for="chapter">Which chapter?</label>
-      <select id="chapter"></select>
-      <div class="anchor" id="anchor"></div>
-      <div class="issues hidden" id="issues"></div>
-
-      <div class="row">
-        <div><label for="expected">What did you expect to happen?</label><textarea id="expected" placeholder="e.g. Only 3 hazards should be set at random"></textarea></div>
-        <div><label for="actual">What actually happened?</label><textarea id="actual" placeholder="e.g. Only one hazard gets set"></textarea></div>
-      </div>
-      <details><summary>Optional: paste your Player.log</summary>
-        <textarea id="log" placeholder="~/Library/Logs/Pixo VR/Pixo Builder/Player.log"></textarea>
-      </details>
-
-      <button id="go" disabled>Diagnose</button>
-    </div>
+  <div>
+    <h1>Builder Doctor — Ask</h1>
+    <p class="sub">Drop your book and tell me what's going on. I'll read its wiring and help you figure it out — or point you to Pixo Support.</p>
+    <p class="privacy">🔒 Your book is unzipped and analyzed <b>in your browser</b>. Only a summary of the relevant wiring is sent — the file never leaves your machine.</p>
   </div>
 
-  <div id="err" class="err hidden"></div>
-  <div id="out" class="card hidden"><div class="answer" id="answer"></div></div>
+  <div id="drop" class="drop">
+    <strong>Drop your .pixob here</strong> — or click to choose
+    <div><small>Nothing uploads. The read happens locally.</small></div>
+    <input id="file" type="file" accept=".pixob,application/zip" class="hidden">
+  </div>
+
+  <div id="session" class="hidden">
+    <div class="banner">
+      <span>📖 <b id="bkname"></b></span>
+      <span>·&nbsp; chapter <select id="chapter"></select></span>
+      <span id="savenote"></span>
+      <span class="issues hidden" id="issues"></span>
+      <details class="log" style="flex-basis:100%"><summary>attach Player.log (optional)</summary><textarea id="log" placeholder="~/Library/Logs/Pixo VR/Pixo Builder/Player.log"></textarea></details>
+    </div>
+
+    <div class="thread" id="thread"></div>
+    <div class="err hidden" id="err"></div>
+
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="e.g. In this chapter I expected 3 hazards but only one gets set…"></textarea>
+      <button id="send" disabled>Send</button>
+    </div>
+  </div>
 </div>
 
 <script>/* analyzer.js (inlined) */
@@ -462,68 +466,73 @@
 <script>
 (function(){
   var $=function(id){return document.getElementById(id);};
-  var files=null, savedAt=null, bmap=null, known=[];
-  var drop=$('drop'), fileInput=$('file');
+  var files=null, savedAt=null, bmap=null, known=[], history=[];
 
-  function setReady(){ $('go').disabled = !($('expected').value.trim() && $('actual').value.trim() && $('chapter').value); }
-  ['expected','actual'].forEach(function(id){ $(id).addEventListener('input', setReady); });
-  $('chapter') && $('chapter').addEventListener('change', function(){ updateAnchor(); setReady(); });
-
-  function updateAnchor(){
-    var opt=$('chapter').selectedOptions[0]; if(!opt) return;
-    $('anchor').innerHTML = 'Diagnosing <b>'+opt.dataset.name+'</b> <code>['+opt.value.slice(0,8)+']</code> — '+opt.dataset.sparks+' Sparks. Reading your file as saved '+(savedAt||'(unknown)')+'. I can’t see unsaved edits open in Builder.';
+  function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+  function bubble(role, text){
+    var d=document.createElement('div'); d.className='msg '+(role==='me'?'me':'bot');
+    d.innerHTML=esc(text); $('thread').appendChild(d); $('thread').scrollTop=$('thread').scrollHeight; return d;
   }
 
   async function handleFile(file){
-    $('err').classList.add('hidden'); $('out').classList.add('hidden');
     try{
-      savedAt = file.lastModified ? new Date(file.lastModified).toLocaleString() : null;
+      savedAt = file.lastModified ? new Date(file.lastModified).toLocaleString() : '(unknown)';
       var ab=await file.arrayBuffer();
-      var text=await window.BuilderDoctorZip.readZipJson(ab);
-      files=window.BuilderDoctorZip.parseAll(text);
+      files=window.BuilderDoctorZip.parseAll(await window.BuilderDoctorZip.readZipJson(ab));
       if(!files['Book.json']) throw new Error('No Book.json — this may not be a Pixo Builder book.');
       bmap=window.BuilderDoctorMap.bookMap(files);
-      var scan=window.BuilderDoctor.analyze(files, null);
+      var scan=window.BuilderDoctor.analyze(files, $('log').value||null);
       known=scan.findings.filter(function(f){return f.sev!=='info';}).map(function(f){return {jira:f.jira,severity:f.sev,title:f.title};});
-      // populate chapter picker (GUID-anchored)
+      $('bkname').textContent=bmap.name||'Untitled book';
       var sel=$('chapter'); sel.innerHTML='';
-      bmap.chapters.forEach(function(c){
-        var o=document.createElement('option');
-        o.value=c.guid; o.textContent=c.name+'  ['+c.guid.slice(0,8)+']  ·  '+c.sparkCount+' sparks';
-        o.dataset.name=c.name; o.dataset.sparks=c.sparkCount; sel.appendChild(o);
-      });
-      $('drop').classList.add('hidden'); $('loaded').classList.remove('hidden');
-      if(known.length){ $('issues').classList.remove('hidden'); $('issues').textContent='Heads up — a scan flagged '+known.length+' known issue(s) in this book; I’ll factor those in.'; }
-      updateAnchor(); setReady();
-    }catch(e){ $('err').textContent='Could not read this file: '+e.message; $('err').classList.remove('hidden'); }
+      bmap.chapters.forEach(function(c){ var o=document.createElement('option'); o.value=c.guid; o.textContent=c.name+'  ['+c.guid.slice(0,8)+']'; o.dataset.name=c.name; sel.appendChild(o); });
+      $('savenote').innerHTML='·&nbsp; saved <b>'+savedAt+'</b> (I read the saved file, not unsaved edits in Builder)';
+      if(known.length){ $('issues').classList.remove('hidden'); $('issues').textContent='⚠ '+known.length+' known issue(s) flagged in this book — I’ll factor those in.'; }
+      $('drop').classList.add('hidden'); $('session').classList.remove('hidden');
+      history=[];
+      var opt=sel.selectedOptions[0];
+      bubble('bot', "I’ve got your book open to “"+opt.dataset.name+"”. What’s going on?");
+      $('send').disabled=false; $('input').focus();
+    }catch(e){ bubbleErr('Could not read this file: '+e.message); }
   }
 
+  function bubbleErr(m){ $('err').textContent=m; $('err').classList.remove('hidden'); }
+
+  async function send(){
+    var text=$('input').value.trim(); if(!text) return;
+    $('err').classList.add('hidden');
+    bubble('me', text); history.push({role:'user', content:text});
+    $('input').value=''; autosize(); $('send').disabled=true;
+    var typing=bubble('bot','…'); typing.classList.add('typing');
+    try{
+      var opt=$('chapter').selectedOptions[0];
+      var digest=window.BuilderDoctorMap.chapterWiring(files, $('chapter').value);
+      var res=await fetch('/api/diagnose',{ method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ messages:history, digest:digest,
+          bookMap:{name:bmap.name, savedAt:savedAt}, chapter:{name:opt.dataset.name, guid:$('chapter').value},
+          knownIssues:known, log:$('log').value.trim()||undefined })
+      });
+      var data=await res.json();
+      typing.remove();
+      if(!res.ok) throw new Error(data.error||'Request failed');
+      bubble('bot', data.answer); history.push({role:'assistant', content:data.answer});
+    }catch(e){ typing.remove(); bubbleErr(e.message); }
+    finally{ $('send').disabled=false; $('input').focus(); }
+  }
+
+  function autosize(){ var t=$('input'); t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,140)+'px'; }
+
+  // wiring
+  var drop=$('drop'), fileInput=$('file');
   drop.addEventListener('click',function(){fileInput.click();});
   fileInput.addEventListener('change',function(){ if(fileInput.files[0]) handleFile(fileInput.files[0]); });
   ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('drag');});});
   ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('drag');});});
   drop.addEventListener('drop',function(e){ var f=e.dataTransfer.files[0]; if(f) handleFile(f); });
-
-  $('go').addEventListener('click', async function(){
-    var guid=$('chapter').value;
-    var opt=$('chapter').selectedOptions[0];
-    var digest=window.BuilderDoctorMap.chapterWiring(files, guid);
-    $('go').disabled=true; $('go').textContent='Diagnosing…'; $('err').classList.add('hidden');
-    try{
-      var res=await fetch('/api/diagnose',{ method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          expected:$('expected').value.trim(), actual:$('actual').value.trim(),
-          chapter:{name:opt.dataset.name, guid:guid},
-          bookMap:{name:bmap.name, savedAt:savedAt}, knownIssues:known,
-          log:$('log').value.trim()||undefined, digest:digest
-        })
-      });
-      var data=await res.json();
-      if(!res.ok) throw new Error(data.error||'Request failed');
-      $('answer').textContent=data.answer; $('out').classList.remove('hidden');
-    }catch(e){ $('err').textContent=e.message; $('err').classList.remove('hidden'); }
-    finally{ $('go').disabled=false; $('go').textContent='Diagnose'; }
-  });
+  $('send').addEventListener('click', send);
+  $('input').addEventListener('input', autosize);
+  $('input').addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+  $('chapter').addEventListener('change', function(){ var o=$('chapter').selectedOptions[0]; bubble('bot','(Now looking at “'+o.dataset.name+'”.)'); });
 })();
 </script>
 </body>

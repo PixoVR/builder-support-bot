@@ -24,24 +24,40 @@ async function logToSheets(payload) {
   } catch (err) { console.error('Sheets logging failed:', err.message); }
 }
 
-const SYSTEM = (docs) => `You are Builder Doctor, a diagnostic assistant for Pixo Builder — a no-code authoring tool for interactive XR training. An author tells you what they expected to happen and what actually happened; you reason over the wiring of their book to explain why, or tell them to escalate.
+// Block 1: role + method + docs. Stable across ALL calls -> globally cacheable.
+const INSTRUCTIONS = (docs) => `You are Builder Doctor, chatting with an author about their Pixo Builder book — a no-code tool for interactive XR training. They describe what's going wrong in their own words; you figure out why by reading the book's wiring, and you either explain it or tell them to bring it to Pixo Support.
 
-You are given, per request:
-- BOOK IDENTITY: the book name, the specific chapter under diagnosis (by GUID), and the time the file was last saved.
-- WIRING DIGEST: the relevant chapter's Sparks with their Causes and Effects and what each is wired to, plus key trait values. This is the authored logic.
-- KNOWN ISSUES: any matches from a deterministic scan of the book against a catalog of confirmed Builder bugs.
-- The Pixo Builder DOCUMENTATION, which defines how Sparks, Causes, Effects, traits, and wiring behave.
+You are given, in a separate context block, the CURRENT BOOK CONTEXT: the chapter under discussion (with its GUID and the time the file was last saved), a deterministic scan for known bugs, and a WIRING DIGEST of that chapter's authored logic (Sparks with their Causes and Effects, what each is wired to, and key trait values). Treat that as the state of their book as of the save time — you cannot see unsaved edits open in Builder.
 
-HOW TO REASON:
-1. Anchor on identity. Begin by stating which chapter (name + short GUID) and that you are reading the file "as of last save at <time>" — you cannot see unsaved edits open in Builder. If the user's description seems to describe a different chapter than the one provided, say so and ask them to confirm rather than guessing.
-2. If a KNOWN ISSUE matches the symptom, name it (with its identifier) and give its workaround. Known bugs are not the user's fault.
-3. Otherwise compare EXPECTED vs ACTUAL against the WIRING DIGEST. Point to the specific Sparks/nodes and wiring that explain the gap (e.g. "the Interacted cause on X is wired to Highlight, not Move" or "the '≠3' output of If Is Equal To Value is not connected, so the loop can't continue"). Cite node names from the digest as evidence. Ground every claim about how Builder behaves in the DOCUMENTATION — never invent Builder behavior.
-4. If the authoring looks correct and no known issue matches, DO NOT invent a user-error explanation. Say the authoring looks correct and that this may be a Builder issue, and tell them to bring it to Pixo Support with their .pixob and Player.log. When genuinely unsure, bias toward escalating rather than toward a confident guess — a wrong-but-confident answer is worse than an honest escalation.
-
-Be concrete and brief. Structure: what you're looking at (identity) → the cause (with wiring evidence) or escalation → the fix (if it's authoring). Do not pad.
+How to converse:
+- Be warm, brief, and plain. Talk like a knowledgeable colleague, not a form. No preamble like "Great question."
+- The user has already been shown which chapter and save-time you're looking at, so don't recite it unless it becomes relevant (e.g. their description doesn't match the chapter provided — then say so and ask them to confirm the chapter).
+- If you need something to diagnose — what they expected, which object, which chapter — just ask, one question at a time.
+- When you diagnose, point to the specific Sparks/nodes in the WIRING DIGEST as evidence (e.g. "the Interacted cause on the door is wired to Highlight, not Move" or "the '≠3' output of If Is Equal To Value isn't connected, so the loop can't continue"). Ground every claim about how Builder behaves in the DOCUMENTATION below — never invent Builder behavior.
+- If a KNOWN ISSUE matches, name it (with its identifier) and give the workaround. Known bugs are not the user's fault.
+- If the authoring looks correct and no known issue matches, say so plainly and suggest they bring it to Pixo Support with their .pixob and Player.log — do NOT invent a user-error explanation. When you're genuinely unsure, lean toward that honest escalation rather than a confident guess.
 
 PIXO BUILDER DOCUMENTATION:
 ${docs}`;
+
+// Block 2: this book's context. Stable across the turns of one conversation -> per-conversation cacheable.
+function bookContext({ bookMap, chapter, knownIssues = [], log, digest }) {
+  return [
+    `CURRENT BOOK CONTEXT (the user's uploaded file):`,
+    `  Book: ${bookMap?.name || '(unknown)'}`,
+    `  Chapter under discussion: ${chapter?.name || '(unspecified)'} [${(chapter?.guid || '').slice(0, 8)}]`,
+    `  File last saved: ${bookMap?.savedAt || '(unknown)'}`,
+    ``,
+    `KNOWN ISSUES (deterministic scan): ${knownIssues.length ? '' : 'none matched'}`,
+    knownIssues.length ? JSON.stringify(knownIssues, null, 1) : '',
+    log ? `\nPLAYER.LOG (excerpt):\n${String(log).slice(0, 6000)}` : '',
+    ``,
+    `WIRING DIGEST (authored logic of this chapter):`,
+    '```json',
+    JSON.stringify(digest || {}).slice(0, 90000),
+    '```',
+  ].join('\n');
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -50,8 +66,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { expected, actual, chapter, digest, bookMap, knownIssues = [], log, userName } = req.body || {};
-  if (!expected || !actual) return res.status(400).json({ error: 'expected and actual are both required' });
+  const { messages = [], digest, bookMap, chapter, knownIssues = [], log, userName } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages is required' });
   if (!digest) return res.status(400).json({ error: 'digest is required (parse the .pixob client-side first)' });
 
   // Key seam: bring-your-own-key via header, else the shared server key.
@@ -62,37 +78,22 @@ export default async function handler(req, res) {
   let docs;
   try { docs = loadDocs(); } catch (err) { return res.status(500).json({ error: err.message }); }
 
-  const userContent = [
-    `BOOK IDENTITY:`,
-    `  Book: ${bookMap?.name || '(unknown)'}`,
-    `  Chapter under diagnosis: ${chapter?.name || '(unspecified)'} [${(chapter?.guid || '').slice(0, 8)}]`,
-    `  File last saved: ${bookMap?.savedAt || '(unknown — treat as the version the user just uploaded)'}`,
-    ``,
-    `EXPECTED: ${expected}`,
-    `ACTUAL: ${actual}`,
-    ``,
-    `KNOWN ISSUES (deterministic scan):`,
-    knownIssues.length ? JSON.stringify(knownIssues, null, 1) : '  (none matched)',
-    ``,
-    log ? `PLAYER.LOG (excerpt):\n${String(log).slice(0, 6000)}\n` : '',
-    `WIRING DIGEST (authored logic of the chapter):`,
-    '```json',
-    JSON.stringify(digest).slice(0, 90000),
-    '```',
-  ].join('\n');
-
   try {
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1500,
-      // Cache the docs-bearing system prompt (stable across calls) to cut repeat input cost ~10x.
-      system: [{ type: 'text', text: SYSTEM(docs), cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userContent }],
+      system: [
+        // Stable across all calls -> cached globally.
+        { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
+        // Stable across turns of THIS conversation -> cached per-conversation.
+        { type: 'text', text: bookContext({ bookMap, chapter, knownIssues, log, digest }), cache_control: { type: 'ephemeral' } },
+      ],
+      messages: messages.slice(-12), // keep recent turns
     });
     const u = response.usage || {};
     console.log(`cache: ${u.cache_creation_input_tokens || 0} created, ${u.cache_read_input_tokens || 0} read / ${u.input_tokens || 0} uncached input`);
     const answer = response.content[0].text;
-    logToSheets({ timestamp: new Date().toISOString(), userName: userName || 'anonymous', mode: 'diagnose', expected, actual, chapter: chapter?.name, answer });
+    logToSheets({ timestamp: new Date().toISOString(), userName: userName || 'anonymous', mode: 'diagnose', chapter: chapter?.name, lastUser: messages[messages.length - 1]?.content, answer });
     return res.status(200).json({ answer });
   } catch (err) {
     console.error('Claude API error:', err.message);
