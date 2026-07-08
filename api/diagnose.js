@@ -90,7 +90,12 @@ export default async function handler(req, res) {
       model: MODEL,
       max_tokens: 8000, // streaming: no HTTP-timeout concern; leaves room for thinking + a tight answer
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' }, // low ignored the counter/gate on the ≠3 case; medium under test
+      // effort:low was fast (~12s) but WRONG on the deleted-≠3-edge case — it ignored the
+      // Active Hazards counter/gate and gave the "chain 3 Generate Value calls" answer.
+      // effort:medium reconstructs the intended loop correctly and consistently (2/2 runs:
+      // "reconnect the ≠3 output → Generate Value"), at ~30-32s. Streaming keeps the connection
+      // alive past the old no-bytes ~30s 504 cliff, so the latency is tolerable (progressive tokens).
+      output_config: { effort: 'medium' },
       system: [
         // Stable across all calls -> cached globally.
         { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
