@@ -466,13 +466,14 @@
 <script>
 (function(){
   var $=function(id){return document.getElementById(id);};
-  var files=null, savedAt=null, bmap=null, known=[], history=[];
+  var files=null, savedAt=null, bmap=null, known=[], history=[], chapterConfirmed=false;
 
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
   function bubble(role, text){
     var d=document.createElement('div'); d.className='msg '+(role==='me'?'me':'bot');
     d.innerHTML=esc(text); $('thread').appendChild(d); $('thread').scrollTop=$('thread').scrollHeight; return d;
   }
+  function bubbleErr(m){ $('err').textContent=m; $('err').classList.remove('hidden'); }
 
   async function handleFile(file){
     try{
@@ -485,22 +486,37 @@
       known=scan.findings.filter(function(f){return f.sev!=='info';}).map(function(f){return {jira:f.jira,severity:f.sev,title:f.title};});
       $('bkname').textContent=bmap.name||'Untitled book';
       var sel=$('chapter'); sel.innerHTML='';
+      var ph=document.createElement('option'); ph.value=''; ph.textContent='— choose a chapter —'; sel.appendChild(ph);
       bmap.chapters.forEach(function(c){ var o=document.createElement('option'); o.value=c.guid; o.textContent=c.name+'  ['+c.guid.slice(0,8)+']'; o.dataset.name=c.name; sel.appendChild(o); });
+      sel.value='';
       $('savenote').innerHTML='·&nbsp; saved <b>'+savedAt+'</b> (I read the saved file, not unsaved edits in Builder)';
       if(known.length){ $('issues').classList.remove('hidden'); $('issues').textContent='⚠ '+known.length+' known issue(s) flagged in this book — I’ll factor those in.'; }
       $('drop').classList.add('hidden'); $('session').classList.remove('hidden');
-      history=[];
-      var opt=sel.selectedOptions[0];
-      bubble('bot', "I’ve got your book open to “"+opt.dataset.name+"”. What’s going on?");
+      history=[]; chapterConfirmed=false;
+      bubble('bot', 'Okay, I’ve got your book loaded — “'+(bmap.name||'your book')+'”. Before we begin, which chapter should we look at? You can pick it from the menu above, or just tell me the name.');
+      $('input').placeholder='Type the chapter name, or pick it from the menu above…';
       $('send').disabled=false; $('input').focus();
     }catch(e){ bubbleErr('Could not read this file: '+e.message); }
   }
 
-  function bubbleErr(m){ $('err').textContent=m; $('err').classList.remove('hidden'); }
+  function confirmChapter(guid, name){
+    $('chapter').value=guid; chapterConfirmed=true;
+    bubble('bot', 'Great — looking at “'+name+'”. Now, what’s going on?');
+    $('input').placeholder='Describe what’s happening…'; $('input').focus();
+  }
 
   async function send(){
     var text=$('input').value.trim(); if(!text) return;
     $('err').classList.add('hidden');
+    if(!chapterConfirmed){
+      bubble('me', text); $('input').value=''; autosize();
+      var q=text.toLowerCase().replace(/[“”"’']/g,'').trim();
+      var matches=bmap.chapters.filter(function(c){ var n=c.name.toLowerCase(); return n.indexOf(q)!==-1 || q.indexOf(n)!==-1; });
+      if(matches.length===1){ confirmChapter(matches[0].guid, matches[0].name); }
+      else if(matches.length>1){ bubble('bot', 'A few chapters match — which one? '+matches.map(function(c){return '“'+c.name+'”';}).join(', ')); }
+      else { bubble('bot', 'I don’t see a chapter by that name. The chapters are: '+bmap.chapters.map(function(c){return '“'+c.name+'”';}).join(', ')+'. Which should we look at?'); }
+      return;
+    }
     bubble('me', text); history.push({role:'user', content:text});
     $('input').value=''; autosize(); $('send').disabled=true;
     var typing=bubble('bot','…'); typing.classList.add('typing');
@@ -522,7 +538,6 @@
 
   function autosize(){ var t=$('input'); t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,140)+'px'; }
 
-  // wiring
   var drop=$('drop'), fileInput=$('file');
   drop.addEventListener('click',function(){fileInput.click();});
   fileInput.addEventListener('change',function(){ if(fileInput.files[0]) handleFile(fileInput.files[0]); });
@@ -532,7 +547,11 @@
   $('send').addEventListener('click', send);
   $('input').addEventListener('input', autosize);
   $('input').addEventListener('keydown', function(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
-  $('chapter').addEventListener('change', function(){ var o=$('chapter').selectedOptions[0]; bubble('bot','(Now looking at “'+o.dataset.name+'”.)'); });
+  $('chapter').addEventListener('change', function(){
+    var o=$('chapter').selectedOptions[0]; if(!o || !o.value) return;
+    if(!chapterConfirmed){ confirmChapter(o.value, o.dataset.name); }
+    else { bubble('bot','(Now looking at “'+o.dataset.name+'”.)'); }
+  });
 })();
 </script>
 </body>
