@@ -2,8 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 
-// Reasoning-heavy diagnosis. Swap to a stronger model here if calibration needs it.
-const MODEL = 'claude-sonnet-4-6';
+// Reasoning-heavy diagnosis: Sonnet 5 (adaptive thinking) — near-Opus reasoning at Sonnet price.
+// Bump to 'claude-opus-4-8' here if calibration needs max reasoning (higher cost).
+const MODEL = 'claude-sonnet-5';
 
 // Docs grounding (same bundle the support chat uses), cached across warm invocations.
 let docsContext = null;
@@ -83,7 +84,8 @@ export default async function handler(req, res) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1500,
+      max_tokens: 4000, // headroom: adaptive thinking tokens + the answer share this budget
+      thinking: { type: 'adaptive' }, // reason through consequences before answering (helps control-flow correctness)
       system: [
         // Stable across all calls -> cached globally.
         { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
@@ -94,7 +96,9 @@ export default async function handler(req, res) {
     });
     const u = response.usage || {};
     console.log(`cache: ${u.cache_creation_input_tokens || 0} created, ${u.cache_read_input_tokens || 0} read / ${u.input_tokens || 0} uncached input`);
-    const answer = response.content[0].text;
+    // With thinking enabled, a thinking block precedes the text — pull the text block, not content[0].
+    const textBlock = (response.content || []).find(b => b.type === 'text');
+    const answer = textBlock ? textBlock.text : '';
     logToSheets({ timestamp: new Date().toISOString(), userName: userName || 'anonymous', mode: 'diagnose', chapter: chapter?.name, lastUser: messages[messages.length - 1]?.content, answer });
     return res.status(200).json({ answer });
   } catch (err) {
