@@ -5,7 +5,7 @@
       "includeFiles": "data/**"
     },
     "api/diagnose.js": {
-      "maxDuration": 30,
+      "maxDuration": 60,
       "includeFiles": "data/**"
     }
   }

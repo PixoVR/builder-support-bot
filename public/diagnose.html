@@ -571,9 +571,9 @@
           bookMap:{name:bmap.name, savedAt:savedAt}, chapter:{name:opt.dataset.name, guid:$('chapter').value},
           knownIssues:known, log:$('log').value.trim()||undefined })
       });
-      var data=await res.json();
-      typing.remove();
-      if(!res.ok) throw new Error(data.error||'Request failed');
+      var raw=await res.text(); typing.remove();
+      var data=null; try{ data=JSON.parse(raw); }catch(_){}
+      if(!res.ok || !data){ throw new Error((data&&data.error) || (res.status===504?'That analysis took too long to finish — try again, or narrow it to a specific chapter or object.':'Something went wrong (status '+res.status+'). Please try again.')); }
       bubble('bot', data.answer); history.push({role:'assistant', content:data.answer});
     }catch(e){ typing.remove(); bubbleErr(e.message); }
     finally{ $('send').disabled=false; $('input').focus(); }
