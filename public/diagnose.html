@@ -428,6 +428,41 @@
       return r;
     };
 
+    // ---- reachability: which entry points (Causes + trigger roots like Chapter Started) reach each node ----
+    // Entry point = any behavior node with no incoming wire (a real Cause, or an Effect the
+    // runtime fires on its own such as Chapter Started). A node's reachedFrom lists the entries
+    // that can reach it through ANY chain of wired nodes; empty means genuinely never triggered.
+    var adj = {};        // guid -> [downstream guids]
+    var indeg = {};      // guid -> incoming edge count
+    var nodeLabel = {};  // guid -> "Spark · NodeName"
+    (ch.sparkGuids || []).forEach(function (g) {
+      var sp = m.sparks[g]; if (!sp) return;
+      var nm = iname(sp);
+      var addNode = function (node) {
+        nodeLabel[node.GuidInstance] = nm + ' · ' + node.Name;
+        (node.Effects || []).forEach(function (slot) {
+          if (Array.isArray(slot)) slot.forEach(function (dst) {
+            (adj[node.GuidInstance] = adj[node.GuidInstance] || []).push(dst);
+            indeg[dst] = (indeg[dst] || 0) + 1;
+          });
+        });
+      };
+      (sp.CauseInstances || []).forEach(addNode);
+      (sp.EffectInstances || []).forEach(addNode);
+    });
+    var entries = Object.keys(nodeLabel).filter(function (g) { return !indeg[g]; });
+    var reachedBy = {};  // guid -> { entryLabel: 1 }
+    entries.forEach(function (e) {
+      (reachedBy[e] = reachedBy[e] || {})[nodeLabel[e]] = 1; // an entry is reached by itself
+      var seen = {}, stack = (adj[e] || []).slice();
+      while (stack.length) {
+        var n = stack.pop(); if (seen[n]) continue; seen[n] = 1;
+        (reachedBy[n] = reachedBy[n] || {})[nodeLabel[e]] = 1;
+        (adj[n] || []).forEach(function (x) { if (!seen[x]) stack.push(x); });
+      }
+    });
+    var reachedFrom = function (guid) { var s = reachedBy[guid]; return s ? Object.keys(s).slice(0, 10) : []; };
+
     var sparks = [];
     (ch.sparkGuids || []).forEach(function (g) {
       var sp = m.sparks[g]; if (!sp) return;
@@ -440,7 +475,7 @@
       });
       var causes = (sp.CauseInstances || []).map(function (c) { return { name: c.Name, wiredTo: outs(c) }; });
       var effects = (sp.EffectInstances || []).map(function (e) {
-        return { name: e.Name, params: summarizeParams(e.Params), wiredTo: outs(e) };
+        return { name: e.Name, params: summarizeParams(e.Params), reachedFrom: reachedFrom(e.GuidInstance), wiredTo: outs(e) };
       });
       if (causes.length || effects.length || Object.keys(notable).length) {
         sparks.push({ name: iname(sp), type: shortType(sp.Type), traits: notable, causes: causes, effects: effects });
