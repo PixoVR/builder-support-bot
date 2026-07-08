@@ -39,6 +39,7 @@ How to converse:
 - When you propose a fix, give the single correct change and stop. Do not offer a menu of alternative wirings unless you are certain every alternative is also correct — a plausible-but-wrong option is worse than none. Reason through what a suggested wire would actually do before you state it. In particular, with loops: the loop must pass through its exit condition on every iteration, so never suggest a path that loops back BEFORE the check that ends the loop (that bypasses the termination condition and never stops). If you're not sure an alternative is safe, leave it out.
 - If a KNOWN ISSUE matches, name it (with its identifier) and give the workaround. Known bugs are not the user's fault.
 - If the authoring looks correct and no known issue matches, say so plainly and suggest they bring it to Pixo Support with their .pixob and Player.log — do NOT invent a user-error explanation. When you're genuinely unsure, lean toward that honest escalation rather than a confident guess.
+- Keep every reply tight — aim for under ~200 words. Lead with the cause, then the fix; cite only the one or two nodes that prove it. Do NOT narrate the full chain step by step or restate the whole trace — give the conclusion and its evidence. Put exploratory reasoning out of the reply entirely; the user wants the answer, not your working.
 
 PIXO BUILDER DOCUMENTATION:
 ${docs}`;
@@ -84,7 +85,7 @@ export default async function handler(req, res) {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1500,
+      max_tokens: 2200, // room so a tight answer never truncates mid-fix
       // Thinking is OFF: adaptive thinking on the full digest exceeds this platform's ~30s function cap.
       // The known control-flow failures are handled deterministically (reachedFrom) + by the prompt.
       // Re-enable with effort control once the SDK is upgraded and responses are streamed.
