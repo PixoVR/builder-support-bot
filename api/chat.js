@@ -83,9 +83,13 @@ ${docs}`;
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: systemPrompt,
+      // Cache the docs-bearing system prompt (stable across calls) to cut repeat input cost ~10x.
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
       messages,
     });
+
+    const u = response.usage || {};
+    console.log(`cache: ${u.cache_creation_input_tokens || 0} created, ${u.cache_read_input_tokens || 0} read / ${u.input_tokens || 0} uncached input`);
 
     const answer = response.content[0].text;
 

@@ -85,9 +85,12 @@ export default async function handler(req, res) {
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1500,
-      system: SYSTEM(docs),
+      // Cache the docs-bearing system prompt (stable across calls) to cut repeat input cost ~10x.
+      system: [{ type: 'text', text: SYSTEM(docs), cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: userContent }],
     });
+    const u = response.usage || {};
+    console.log(`cache: ${u.cache_creation_input_tokens || 0} created, ${u.cache_read_input_tokens || 0} read / ${u.input_tokens || 0} uncached input`);
     const answer = response.content[0].text;
     logToSheets({ timestamp: new Date().toISOString(), userName: userName || 'anonymous', mode: 'diagnose', expected, actual, chapter: chapter?.name, answer });
     return res.status(200).json({ answer });
