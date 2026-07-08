@@ -561,8 +561,8 @@
     }
     bubble('me', text); history.push({role:'user', content:text});
     $('input').value=''; autosize(); $('send').disabled=true;
-    var typing=bubble('bot',''); typing.classList.add('typing');
-    typing.innerHTML='<span class="dots"><i></i><i></i><i></i></span>';
+    var bot=bubble('bot',''); bot.classList.add('typing');
+    bot.innerHTML='<span class="dots"><i></i><i></i><i></i></span>';
     try{
       var opt=$('chapter').selectedOptions[0];
       var digest=window.BuilderDoctorMap.chapterWiring(files, $('chapter').value);
@@ -571,11 +571,23 @@
           bookMap:{name:bmap.name, savedAt:savedAt}, chapter:{name:opt.dataset.name, guid:$('chapter').value},
           knownIssues:known, log:$('log').value.trim()||undefined })
       });
-      var raw=await res.text(); typing.remove();
-      var data=null; try{ data=JSON.parse(raw); }catch(_){}
-      if(!res.ok || !data){ throw new Error((data&&data.error) || (res.status===504?'That analysis took too long to finish — try again, or narrow it to a specific chapter or object.':'Something went wrong (status '+res.status+'). Please try again.')); }
-      bubble('bot', data.answer); history.push({role:'assistant', content:data.answer});
-    }catch(e){ typing.remove(); bubbleErr(e.message); }
+      // Errors (before any bytes stream) come back as JSON with the right status.
+      if(!res.ok){
+        var raw=await res.text(); var data=null; try{ data=JSON.parse(raw); }catch(_){}
+        throw new Error((data&&data.error) || (res.status===504?'That analysis took too long to finish — try again, or narrow it to a specific chapter or object.':'Something went wrong (status '+res.status+'). Please try again.'));
+      }
+      // Success: the body is a plain-text stream of the answer — render tokens as they arrive.
+      var reader=res.body.getReader(), dec=new TextDecoder(), answer='', started=false;
+      while(true){
+        var r=await reader.read(); if(r.done) break;
+        var chunk=dec.decode(r.value,{stream:true}); if(!chunk) continue;
+        if(!started){ started=true; bot.classList.remove('typing'); }
+        answer+=chunk; bot.textContent=answer;
+        $('thread').scrollTop=$('thread').scrollHeight;
+      }
+      if(!answer){ throw new Error('No response came back — please try again.'); }
+      history.push({role:'assistant', content:answer});
+    }catch(e){ bot.remove(); bubbleErr(e.message); }
     finally{ $('send').disabled=false; $('input').focus(); }
   }
 

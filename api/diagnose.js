@@ -83,13 +83,14 @@ export default async function handler(req, res) {
   try { docs = loadDocs(); } catch (err) { return res.status(500).json({ error: err.message }); }
 
   try {
-    const response = await client.messages.create({
+    // Stream the response. Adaptive thinking at effort:low reconstructs half-built loops
+    // (the deleted-≠3-edge case) that no-thinking Sonnet 5 misses; streaming pipes text as it
+    // lands so the client sees progress well before the ~30s function cap — no all-at-once 504.
+    const stream = client.messages.stream({
       model: MODEL,
-      max_tokens: 2200, // room so a tight answer never truncates mid-fix
-      // Thinking is OFF: adaptive thinking on the full digest exceeds this platform's ~30s function cap.
-      // The known control-flow failures are handled deterministically (reachedFrom) + by the prompt.
-      // Re-enable with effort control once the SDK is upgraded and responses are streamed.
-      thinking: { type: 'disabled' },
+      max_tokens: 8000, // streaming: no HTTP-timeout concern; leaves room for thinking + a tight answer
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low' }, // low is fast and still generalizes (reconstructs the intended loop)
       system: [
         // Stable across all calls -> cached globally.
         { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
@@ -98,15 +99,28 @@ export default async function handler(req, res) {
       ],
       messages: messages.slice(-12), // keep recent turns
     });
-    const u = response.usage || {};
+
+    // Pipe only the TEXT deltas to the client (a thinking block precedes the text — skip it).
+    let answer = '';
+    stream.on('text', (delta) => {
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('X-Accel-Buffering', 'no'); // don't let a proxy buffer the stream
+      }
+      answer += delta;
+      res.write(delta);
+    });
+
+    const final = await stream.finalMessage();
+    const u = final.usage || {};
     console.log(`cache: ${u.cache_creation_input_tokens || 0} created, ${u.cache_read_input_tokens || 0} read / ${u.input_tokens || 0} uncached input`);
-    // With thinking enabled, a thinking block precedes the text — pull the text block, not content[0].
-    const textBlock = (response.content || []).find(b => b.type === 'text');
-    const answer = textBlock ? textBlock.text : '';
     logToSheets({ timestamp: new Date().toISOString(), userName: userName || 'anonymous', mode: 'diagnose', chapter: chapter?.name, lastUser: messages[messages.length - 1]?.content, answer });
-    return res.status(200).json({ answer });
+    return res.end();
   } catch (err) {
     console.error('Claude API error:', err.message);
-    return res.status(500).json({ error: 'Failed to get a diagnosis. Please try again.' });
+    // If nothing has streamed yet we can still return a clean JSON error; otherwise just close.
+    if (!res.headersSent) return res.status(500).json({ error: 'Failed to get a diagnosis. Please try again.' });
+    return res.end();
   }
 }
