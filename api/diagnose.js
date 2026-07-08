@@ -90,7 +90,7 @@ export default async function handler(req, res) {
       model: MODEL,
       max_tokens: 8000, // streaming: no HTTP-timeout concern; leaves room for thinking + a tight answer
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'low' }, // low is fast and still generalizes (reconstructs the intended loop)
+      output_config: { effort: 'medium' }, // low ignored the counter/gate on the ≠3 case; medium under test
       system: [
         // Stable across all calls -> cached globally.
         { type: 'text', text: INSTRUCTIONS(docs), cache_control: { type: 'ephemeral' } },
