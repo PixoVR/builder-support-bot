@@ -1,3 +1,9 @@
 .env
 node_modules/
 .vercel/
+
+# Local Claude Code config (dev-server launch config, not part of the bot)
+.claude/*
+!.claude/skills/
+!.claude/skills/**
+.DS_Store
