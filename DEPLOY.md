@@ -18,7 +18,7 @@
 Then push this project:
 
 ```bash
-cd /Users/greg_debeer/Documents/builder-support-bot
+cd "/Users/greg_debeer/Documents/Pixo Repos/builder-support-bot"
 git init
 git add .
 git commit -m "Initial build"
@@ -87,7 +87,7 @@ function doPost(e) {
 When you push updates to builder-docs and want the bot to reflect them:
 
 ```bash
-cd /Users/greg_debeer/Documents/builder-support-bot
+cd "/Users/greg_debeer/Documents/Pixo Repos/builder-support-bot"
 npm run bundle-docs
 git add data/docs.json
 git commit -m "Update docs bundle"

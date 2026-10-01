@@ -17,7 +17,7 @@ import os from 'os';
 
 // Path to your local builder-docs clone. Override with env var if needed.
 const DOCS_ROOT = process.env.BUILDER_DOCS_PATH ||
-  path.join(os.homedir(), 'Documents', 'builder-docs', 'docs');
+  path.join(os.homedir(), 'Documents', 'Pixo Repos', 'builder-docs', 'docs');
 
 const OUTPUT_PATH = path.join(process.cwd(), 'data', 'docs.json');
 
@@ -54,7 +54,7 @@ function collectMarkdownFiles(dir, results = []) {
 }
 
 function relPath(fullPath) {
-  return path.relative(path.join(os.homedir(), 'Documents', 'builder-docs'), fullPath);
+  return path.relative(path.join(os.homedir(), 'Documents', 'Pixo Repos', 'builder-docs'), fullPath);
 }
 
 // --- Main ---
